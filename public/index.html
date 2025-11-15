@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Website Blocker</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #fafbfc; padding: 30px; }
+        .container { max-width: 400px; margin: auto; background: #fff; padding: 25px; border-radius: 10px; box-shadow: 0 0 10px #eee; }
+        h1, h2 { margin-top: 0; }
+        input[type="text"], input[type="file"] { width: 100%; margin-bottom: 13px; padding: 8px; }
+        button { padding: 8px 18px; background: #2d8cf0; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-bottom:10px;}
+        #resetHostsBtn { background: #e74c3c; }
+        hr { margin: 22px 0; }
+        #message, #bulkMessage, #resetMessage { margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Website Blocker</h1>
+        <label for="domainInput">Enter a domain to block:</label>
+        <input type="text" id="domainInput" placeholder="e.g. example.com">
+        <button type="button" onclick="blockWebsite()">Block Website</button>
+        <p id="message"></p>
+
+        <hr>
+        <h2>Bulk Blocker</h2>
+        <form id="bulkForm" enctype="multipart/form-data">
+            <label for="domainsFile">Upload a .txt file (one domain per line):</label>
+            <input type="file" name="domainsFile" id="domainsFile" accept=".txt">
+            <button type="submit">Bulk Block</button>
+        </form>
+        <p id="bulkMessage"></p>
+
+        <hr>
+        <button id="resetHostsBtn">Reset Hosts File (Clean)</button>
+        <p id="resetMessage"></p>
+    </div>
+
+    <script>
+        const adultTlds = [
+            '.adult', '.xxx', '.sex', '.porn', '.cam', '.tube', '.webcam', '.sexy'
+        ];
+        function isAdultTld(domain) {
+            return adultTlds.some(tld => domain.endsWith(tld));
+        }
+        function isValidDomain(domain) {
+            domain = domain.trim().toLowerCase();
+            const regex = /^(?!\-)(?:[a-zA-Z0-9\-]{1,63}\.)+[a-zA-Z]{2,}$/;
+            return regex.test(domain);
+        }
+        function blockWebsite() {
+            let domain = document.getElementById('domainInput').value.trim().toLowerCase();
+            const messageElement = document.getElementById('message');
+            messageElement.textContent = "";
+            if (!domain) {
+                messageElement.textContent = "Please enter a domain!";
+                messageElement.style.color = 'red';
+                return;
+            }
+            if (!isValidDomain(domain)) {
+                messageElement.textContent = "Invalid domain format!";
+                messageElement.style.color = 'red';
+                return;
+            }
+            if (isAdultTld(domain)) {
+                messageElement.textContent = "This domain uses an adult TLD and will be blocked automatically!";
+                messageElement.style.color = 'orange';
+            }
+            fetch('/block', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ domain })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    messageElement.textContent = `${domain} has been blocked!`;
+                    messageElement.style.color = 'green';
+                } else {
+                    messageElement.textContent = data.message || `Failed to block ${domain}.`;
+                    messageElement.style.color = 'red';
+                }
+            })
+            .catch(() => {
+                messageElement.textContent = 'Error occurred!';
+                messageElement.style.color = 'red';
+            });
+        }
+
+        document.getElementById('bulkForm').onsubmit = function(e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('domainsFile');
+            const bulkMessage = document.getElementById('bulkMessage');
+            bulkMessage.textContent = "";
+            if (!fileInput.files[0]) {
+                bulkMessage.textContent = "No file selected!";
+                bulkMessage.style.color = 'red';
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const lines = event.target.result.split(/\r?\n/).map(l => l.trim().toLowerCase()).filter(isValidDomain);
+                const filteredDomains = Array.from(
+                    new Set(lines.concat(lines.filter(isAdultTld)))
+                );
+                if (filteredDomains.length === 0) {
+                    bulkMessage.textContent = "No valid domains found in file!";
+                    bulkMessage.style.color = 'red';
+                    return;
+                }
+                const blob = new Blob([filteredDomains.join('\n')], { type: 'text/plain' });
+                const formData = new FormData();
+                formData.append('domainsFile', blob, 'domains.txt');
+                fetch('/bulk-block', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(resp => resp.json())
+                .then(data => {
+                    if (data.success) {
+                        bulkMessage.textContent = "Bulk block successful!";
+                        bulkMessage.style.color = 'green';
+                    } else {
+                        bulkMessage.textContent = data.message || "Bulk block failed.";
+                        bulkMessage.style.color = 'red';
+                    }
+                }).catch(() => {
+                    bulkMessage.textContent = "Error occurred!";
+                    bulkMessage.style.color = 'red';
+                });
+            };
+            reader.readAsText(fileInput.files[0]);
+        };
+
+        document.getElementById('resetHostsBtn').onclick = function() {
+            const resetMsg = document.getElementById('resetMessage');
+            resetMsg.textContent = 'Resetting...';
+            resetMsg.style.color = 'orange';
+            fetch('/reset-hosts', { method: 'POST' })
+              .then(r => r.json())
+              .then(data => {
+                  if (data.success) {
+                      resetMsg.textContent = "Hosts file reset! DNS blocklist cleared.";
+                      resetMsg.style.color = 'green';
+                  } else {
+                      resetMsg.textContent = data.message || "Failed to reset.";
+                      resetMsg.style.color = 'red';
+                  }
+              }).catch(() => {
+                  resetMsg.textContent = "Error occurred!";
+                  resetMsg.style.color = 'red';
+              });
+        };
+    </script>
+</body>
+</html>
